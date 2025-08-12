@@ -1,0 +1,3 @@
+[build]
+  publish = "."                  # 靜態檔案輸出目錄（就是根目錄）
+  functions = "netlify/functions"  # Serverless function 目錄
