@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>簡易辦公室點餐系統（靜態版）</title>
+  <style>
+    body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding:16px; background:#f7f7f9}
+    .container{max-width:980px;margin:0 auto;background:#fff;padding:18px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+    h1{margin-top:0}
+    .row{display:flex;gap:12px;align-items:flex-start}
+    .col{flex:1}
+    input,textarea,select,button{font-size:14px;padding:8px;border:1px solid #ddd;border-radius:6px}
+    button{cursor:pointer}
+    .shop{border:1px dashed #ddd;padding:10px;border-radius:6px;margin-bottom:10px}
+    .item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0}
+    .item:last-child{border-bottom:none}
+    .badge{background:#eef;border-radius:8px;padding:2px 8px;font-size:12px}
+    .cart{position:fixed;right:20px;bottom:20px;background:#fff;padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.12);min-width:260px}
+    .small{font-size:13px;color:#666}
+    .linkarea{width:100%;height:70px}
+    .csvarea{width:100%;height:120px}
+    .flex{display:flex;gap:8px}
+    .qtyctrl button{width:28px;height:28px}
+    .muted{color:#888;font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>辦公室點餐系統（靜態）</h1>
+    <p class="small">可新增「餐廳」或「飲料店」，編輯菜單 → 產生分享連結給同事點餐。這個版本為靜態單檔（HTML），不需要伺服器就可編輯、分享（若要真正以 URL 分享請部署到 GitHub Pages / Vercel / 靜態 host）。</p>
+
+    <div class="row">
+      <div class="col">
+        <h3>管理（新增 / 編輯菜單）</h3>
+        <div>
+          <label>店家類型：
+            <select id="newShopType"><option value="餐廳">餐廳</option><option value="飲料">飲料店</option></select>
+          </label>
+        </div>
+        <div style="margin-top:8px">
+          <input id="newShopName" placeholder="店家名稱（例如：小張便當）" />
+          <button id="addShopBtn">新增店家</button>
+        </div>
+
+        <div id="shopsArea" style="margin-top:12px"></div>
+
+        <hr />
+        <h4>產生分享連結</h4>
+        <div class="muted">按下下方按鈕會把目前菜單編碼到網址（URL 參數 data=...），你可以把產生的完整網址複製並分享給同事。</div>
+        <div style="margin-top:8px" class="flex">
+          <button id="generateLinkBtn">產生連結</button>
+          <button id="saveLocalBtn">存檔（下載 JSON）</button>
+          <button id="loadLocalBtn">從檔案載入</button>
+        </div>
+        <textarea id="shareLink" class="linkarea" placeholder="產生後會顯示完整分享連結" readonly></textarea>
+        <input type="file" id="fileInput" style="display:none" />
+      </div>
+
+      <div class="col">
+        <h3>點餐畫面（同事打開分享連結後看到）</h3>
+        <div id="orderArea">目前沒有菜單。請先在左邊新增店家並按「產生連結」。</div>
+      </div>
+    </div>
+
+    <hr />
+    <div style="display:flex;gap:12px;align-items:center">
+      <button id="demoBtn">載入示範菜單</button>
+      <div class="small muted">示範菜單方便快速測試，正式分享請產生連結後分享。</div>
+    </div>
+
+  </div>
+
+  <div class="cart" id="cartBox" style="display:none">
+    <div style="font-weight:600">購物車</div>
+    <div id="cartList" style="max-height:240px;overflow:auto;margin-top:8px"></div>
+    <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center"><div class="small muted">合計：</div><div id="cartTotal">0</div></div>
+    <div style="margin-top:8px" class="flex">
+      <button id="exportCsvBtn">匯出 CSV</button>
+      <button id="copyOrderBtn">複製訂單文字</button>
+      <button id="clearCartBtn">清空</button>
+    </div>
+    <textarea id="csvArea" class="csvarea" readonly style="margin-top:8px;display:none"></textarea>
+  </div>
+
+<script>
+// ---------- helpers for encoding/decoding unicode-safe base64 ----------
+function encodeData(obj){
+  return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+}
+function decodeData(str){
+  try{
+    return JSON.parse(decodeURIComponent(escape(atob(str))));
+  }catch(e){return null}
+}
+
+// ---------- App state ----------
+let app = {
+  shops: [] // each shop {id, type, name, items:[{id,name,price}]}
+};
+
+// ---------- DOM refs ----------
+const shopsArea = document.getElementById('shopsArea');
+const orderArea = document.getElementById('orderArea');
+const shareLink = document.getElementById('shareLink');
+const generateLinkBtn = document.getElementById('generateLinkBtn');
+const addShopBtn = document.getElementById('addShopBtn');
+const newShopName = document.getElementById('newShopName');
+const newShopType = document.getElementById('newShopType');
+const demoBtn = document.getElementById('demoBtn');
+const saveLocalBtn = document.getElementById('saveLocalBtn');
+const fileInput = document.getElementById('fileInput');
+const loadLocalBtn = document.getElementById('loadLocalBtn');
+
+const cartBox = document.getElementById('cartBox');
+const cartList = document.getElementById('cartList');
+const cartTotal = document.getElementById('cartTotal');
+const exportCsvBtn = document.getElementById('exportCsvBtn');
+const csvArea = document.getElementById('csvArea');
+const copyOrderBtn = document.getElementById('copyOrderBtn');
+const clearCartBtn = document.getElementById('clearCartBtn');
+
+// ---------- utilities ----------
+function uid(prefix='id'){return prefix + Math.random().toString(36).slice(2,9)}
+
+// ---------- render management UI ----------
+function renderShopsEditor(){
+  shopsArea.innerHTML='';
+  app.shops.forEach((shop,si)=>{
+    const el = document.createElement('div'); el.className='shop';
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>${shop.name}</strong> <span class="small muted">${shop.type}</span></div>
+        <div class="flex"><button data-act="addItem" data-shop="${shop.id}">新增品項</button><button data-act="delShop" data-shop="${shop.id}">刪除店家</button></div>
+      </div>
+      <div id="items-${shop.id}" style="margin-top:8px"></div>
+    `;
+    shopsArea.appendChild(el);
+
+    const itemsDiv = document.getElementById(`items-${shop.id}`);
+    shop.items.forEach(it=>{
+      const r = document.createElement('div'); r.className='item';
+      r.innerHTML = `<div><strong>${it.name}</strong><div class="small muted">${it.id}</div></div><div style="text-align:right"><div class="badge">$${it.price}</div><div style="margin-top:6px" class="flex"><button data-act="editItem" data-shop="${shop.id}" data-item="${it.id}">編輯</button><button data-act="delItem" data-shop="${shop.id}" data-item="${it.id}">刪除</button></div></div>`;
+      itemsDiv.appendChild(r);
+    });
+  });
+}
+
+shopsArea.addEventListener('click', (e)=>{
+  const act = e.target.dataset.act;
+  const shopId = e.target.dataset.shop;
+  const itemId = e.target.dataset.item;
+  if(!act) return;
+  if(act==='addItem'){
+    const name = prompt('品項名稱'); if(!name) return;
+    const priceStr = prompt('價格（整數）', '60'); if(!priceStr) return;
+    const price = parseInt(priceStr)||0;
+    const shop = app.shops.find(s=>s.id===shopId);
+    shop.items.push({id:uid('it'),name,price});
+    renderShopsEditor(); renderOrder();
+  }else if(act==='delShop'){
+    if(!confirm('確定刪除整個店家？')) return;
+    app.shops = app.shops.filter(s=>s.id!==shopId); renderShopsEditor(); renderOrder();
+  }else if(act==='editItem'){
+    const shop = app.shops.find(s=>s.id===shopId);
+    const it = shop.items.find(x=>x.id===itemId);
+    const name = prompt('品項名稱', it.name); if(!name) return;
+    const price = parseInt(prompt('價格', it.price))||it.price;
+    it.name = name; it.price = price; renderShopsEditor(); renderOrder();
+  }else if(act==='delItem'){
+    const shop = app.shops.find(s=>s.id===shopId);
+    shop.items = shop.items.filter(x=>x.id!==itemId); renderShopsEditor(); renderOrder();
+  }
+});
+
+addShopBtn.addEventListener('click', ()=>{
+  const name = newShopName.value.trim(); if(!name){alert('請輸入店家名稱'); return;}
+  const type = newShopType.value;
+  app.shops.push({id:uid('sh'),type,name,items:[]});
+  newShopName.value=''; renderShopsEditor(); renderOrder();
+});
+
+// ---------- link generation / save / load ----------
+generateLinkBtn.addEventListener('click', ()=>{
+  const encoded = encodeData(app);
+  const base = location.origin + location.pathname;
+  const url = `${base}?data=${encoded}`;
+  shareLink.value = url;
+  shareLink.select(); document.execCommand('copy');
+  alert('已產生並複製連結到剪貼簿（如果是本機檔案，請部署到靜態 host 才能被他人開啟）。');
+});
+
+saveLocalBtn.addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(app,null,2)],{type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'menu.json'; a.click();
+});
+
+loadLocalBtn.addEventListener('click', ()=>fileInput.click());
+fileInput.addEventListener('change',(e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{ app = JSON.parse(reader.result); renderShopsEditor(); renderOrder(); alert('載入完成'); }catch(err){alert('解析錯誤')}
+  };
+  reader.readAsText(f,'utf-8');
+});
+
+// ---------- order view ----------
+let cart = []; // {shopId,itemId,qty,notes}
+
+function renderOrder(){
+  const params = new URLSearchParams(location.search);
+  let data = null;
+  if(params.get('data')){
+    data = decodeData(params.get('data'));
+    if(data && data.shops) app = data;
+  }
+
+  if(app.shops.length===0){ orderArea.innerHTML = '<div class="small muted">目前沒有菜單。請先在左邊新增店家並按「產生連結」。</div>'; return; }
+
+  orderArea.innerHTML = '';
+  app.shops.forEach(shop=>{
+    const sdiv = document.createElement('div'); sdiv.className='shop';
+    sdiv.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${shop.name}</strong><div class="small muted">${shop.type}</div></div></div>`;
+    shop.items.forEach(it=>{
+      const itEl = document.createElement('div'); itEl.className='item';
+      itEl.innerHTML = `<div><div style="font-weight:600">${it.name}</div><div class="small muted">編號: ${it.id}</div></div><div style="text-align:right"><div class="badge">$${it.price}</div><div style="margin-top:6px" class="flex qtyctrl"><button data-act="dec" data-shop="${shop.id}" data-item="${it.id}">-</button><div id="q-${shop.id}-${it.id}" style="padding:6px 10px">0</div><button data-act="inc" data-shop="${shop.id}" data-item="${it.id}">+</button></div></div>`;
+      sdiv.appendChild(itEl);
+    });
+
+    const orderBtn = document.createElement('div'); orderBtn.style.marginTop='8px'; orderBtn.innerHTML = `<button data-act="openShop" data-shop="${shop.id}">進入 ${shop.name} 點餐（含備註）</button>`;
+    sdiv.appendChild(orderBtn);
+    orderArea.appendChild(sdiv);
+  });
+
+  // attach events
+  orderArea.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click',(e)=>{
+      const act = btn.dataset.act; const shopId=btn.dataset.shop; const itemId = btn.dataset.item;
+      if(act==='inc') changeQty(shopId,itemId,1);
+      if(act==='dec') changeQty(shopId,itemId,-1);
+      if(act==='openShop') openShopModal(shopId);
+    });
+  });
+  refreshQtyDisplays();
+}
+
+function changeQty(shopId,itemId,delta){
+  const shop = app.shops.find(s=>s.id===shopId);
+  if(!shop) return;
+  const item = shop.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const existing = cart.find(c=>c.shopId===shopId && c.itemId===itemId);
+  if(existing){ existing.qty = Math.max(0, existing.qty + delta); if(existing.qty===0) cart = cart.filter(c=>c!==existing); }
+  else if(delta>0){ cart.push({shopId,itemId,qty:delta,notes:''}); }
+  refreshQtyDisplays(); renderCart();
+}
+
+function refreshQtyDisplays(){
+  app.shops.forEach(shop=> shop.items.forEach(it=>{
+    const el = document.getElementById(`q-${shop.id}-${it.id}`);
+    if(!el) return;
+    const c = cart.find(x=>x.shopId===shop.id && x.itemId===it.id);
+    el.textContent = c ? c.qty : 0;
+  }));
+}
+
+function openShopModal(shopId){
+  const shop = app.shops.find(s=>s.id===shopId);
+  const modal = document.createElement('div'); modal.style.position='fixed'; modal.style.left='0'; modal.style.top='0'; modal.style.right='0'; modal.style.bottom='0'; modal.style.background='rgba(0,0,0,0.4)'; modal.style.display='flex'; modal.style.alignItems='center'; modal.style.justifyContent='center';
+  const body = document.createElement('div'); body.style.background='#fff'; body.style.padding='18px'; body.style.borderRadius='10px'; body.style.maxWidth='720px'; body.style.width='95%';
+  body.innerHTML = `<h3>${shop.name} 點餐與備註</h3><div id="modalItems"></div><div style="margin-top:8px"><button id="modalClose">關閉</button><button id="modalOk">完成</button></div>`;
+  modal.appendChild(body); document.body.appendChild(modal);
+
+  const modalItems = body.querySelector('#modalItems');
+  shop.items.forEach(it=>{
+    const row = document.createElement('div'); row.className='item';
+    const c = cart.find(x=>x.shopId===shop.id && x.itemId===it.id);
+    const qty = c ? c.qty : 0;
+    row.innerHTML = `<div><strong>${it.name}</strong><div class="small muted">$${it.price}</div></div><div style="text-align:right"><div class="flex"><button data-act="dec" data-item="${it.id}">-</button><div id="m-q-${it.id}">${qty}</div><button data-act="inc" data-item="${it.id}">+</button></div><div style="margin-top:6px"><input placeholder="備註（例：少辣）" id="note-${it.id}" value="${c?c.notes:''}" /></div></div>`;
+    modalItems.appendChild(row);
+  });
+
+  modalItems.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+    const act=b.dataset.act; const itemId=b.dataset.item; const el = body.querySelector(`#m-q-${itemId}`);
+    let n = parseInt(el.textContent)||0; if(act==='inc') n++; else n = Math.max(0,n-1); el.textContent = n;
+  }));
+
+  body.querySelector('#modalOk').addEventListener('click', ()=>{
+    shop.items.forEach(it=>{
+      const n = parseInt(body.querySelector(`#m-q-${it.id}`).textContent)||0;
+      const note = body.querySelector(`#note-${it.id}`).value || '';
+      const exist = cart.find(x=>x.shopId===shop.id && x.itemId===it.id);
+      if(n===0 && exist) cart = cart.filter(x=>!(x.shopId===shop.id && x.itemId===it.id));
+      else if(n>0 && exist){ exist.qty = n; exist.notes = note; }
+      else if(n>0 && !exist) cart.push({shopId:shop.id,itemId:it.id,qty:n,notes:note});
+    });
+    refreshQtyDisplays(); renderCart(); document.body.removeChild(modal);
+  });
+  body.querySelector('#modalClose').addEventListener('click', ()=>document.body.removeChild(modal));
+}
+
+function renderCart(){
+  if(cart.length===0){ cartBox.style.display='none'; return; }
+  cartBox.style.display='block'; cartList.innerHTML=''; let total=0;
+  cart.forEach(c=>{
+    const shop = app.shops.find(s=>s.id===c.shopId);
+    const item = shop.items.find(i=>i.id===c.itemId);
+    const row = document.createElement('div'); row.style.marginBottom='6px';
+    row.innerHTML = `<div style="font-weight:600">${shop.name} — ${item.name} x ${c.qty}</div><div class="small muted">備註：${c.notes||'-'} | 單價：${item.price} | 小計：${item.price*c.qty}</div>`;
+    cartList.appendChild(row);
+    total += item.price*c.qty;
+  });
+  cartTotal.textContent = `$${total}`;
+}
+
+exportCsvBtn.addEventListener('click', ()=>{
+  if(cart.length===0){alert('購物車為空');return}
+  const lines = ['店家,品項,數量,單價,小計,備註'];
+  cart.forEach(c=>{
+    const shop = app.shops.find(s=>s.id===c.shopId);
+    const item = shop.items.find(i=>i.id===c.itemId);
+    lines.push([shop.name, item.name, c.qty, item.price, item.price*c.qty, `"${(c.notes||'').replace(/"/g,'""')}"`].join(','));
+  });
+  const csv = lines.join('\n');
+  csvArea.style.display='block'; csvArea.value = csv;
+  // download
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `order_${Date.now()}.csv`; a.click();
+});
+
+copyOrderBtn.addEventListener('click', ()=>{
+  if(cart.length===0){alert('購物車為空');return}
+  let txt = '訂單摘要:\n'; let sum=0;
+  cart.forEach(c=>{
+    const shop = app.shops.find(s=>s.id===c.shopId);
+    const item = shop.items.find(i=>i.id===c.itemId);
+    txt += `${shop.name} - ${item.name} x ${c.qty} (${item.price}元) 備註:${c.notes||'-'}\n`;
+    sum += item.price*c.qty;
+  });
+  txt += `總價: ${sum}元`;
+  navigator.clipboard.writeText(txt).then(()=>alert('已複製到剪貼簿'));
+});
+
+clearCartBtn.addEventListener('click', ()=>{ if(confirm('清空購物車？')){cart=[]; renderCart(); refreshQtyDisplays(); csvArea.style.display='none';}});
+
+// ---------- demo data ----------
+demoBtn.addEventListener('click', ()=>{
+  app = {
+    shops: [
+      {id:uid('sh'),type:'餐廳',name:'小張便當',items:[{id:uid('it'),name:'雞腿便當',price:100},{id:uid('it'),name:'排骨便當',price:90}]},
+      {id:uid('sh'),type:'飲料店',name:'珍珠奶茶店',items:[{id:uid('it'),name:'珍珠奶茶(大)',price:50},{id:uid('it'),name:'綠茶(中)',price:30}]}
+    ]
+  };
+  renderShopsEditor(); renderOrder();
+});
+
+// ---------- init: check data param ----------
+(function init(){
+  const params = new URLSearchParams(location.search);
+  if(params.get('data')){
+    const d = decodeData(params.get('data'));
+    if(d && d.shops) { app = d; }
+  }
+  renderShopsEditor(); renderOrder();
+})();
+
+</script>
+</body>
+</html>
