@@ -350,6 +350,10 @@ async function loadFromBackend(){
   if(!API_BASE.includes('你的API_ID')) loadFromBackend(); else { orderArea.innerHTML = '<div class="small muted">請先設定 API_BASE（在程式碼頂端）或按「載入示範菜單」。</div>'; }
 })();
 
+fetch(`/api/proxy?action=getAll`)
+  .then(res => res.json())
+  .then(data => renderOrder(data));
+  
 </script>
 </body>
 </html>
