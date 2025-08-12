@@ -91,7 +91,7 @@
 
 <script>
 // ---------- CONFIG: 換成你的 Apps Script Web App URL（不要以 /exec?action=.. 結尾，直接放 base）
-const API_BASE = 'https://script.google.com/macros/s/AKfycbyfJuksLA2uxM6aocZGUjgLboj3vr-Vz1JLSLqt3IRhiJXaJEeeTjmbpfS_3-JB5ZpK/exec'; // <- 把這裡換成你的 URL
+const API_BASE = 'https://script.google.com/macros/s/你的API_ID/exec'; // <- 把這裡換成你的 URL
 
 // ---------- helpers ----------
 function encodeData(obj){return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));}
@@ -299,12 +299,28 @@ function openShopModal(shopId){ const shop = app.shops.find(s=>s.id===shopId); c
 
 function renderCart(){ if(cart.length===0){ cartBox.style.display='none'; return; } cartBox.style.display='block'; cartList.innerHTML=''; let total=0; cart.forEach(c=>{ const shop = app.shops.find(s=>s.id===c.shopId); const item = shop.items.find(i=>i.id===c.itemId); const row = document.createElement('div'); row.style.marginBottom='6px'; row.innerHTML = `<div style="font-weight:600">${shop.name} — ${item.name} x ${c.qty}</div><div class="small muted">備註：${c.notes||'-'} | 單價：${item.price} | 小計：${item.price*c.qty}</div>`; cartList.appendChild(row); total += item.price*c.qty; }); cartTotal.textContent = `$${total}`; }
 
-exportCsvBtn.addEventListener('click', ()=>{ if(cart.length===0){alert('購物車為空');return} const lines = ['店家,品項,數量,單價,小計,備註']; cart.forEach(c=>{ const shop = app.shops.find(s=>s.id===c.shopId); const item = shop.items.find(i=>i.id===c.itemId); lines.push([shop.name, item.name, c.qty, item.price, item.price*c.qty, `"${(c.notes||'').replace(/"/g,'""')}"`].join(',')); }); const csv = lines.join('
-'); csvArea.style.display='block'; csvArea.value = csv; const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `order_${Date.now()}.csv`; a.click(); });
+exportCsvBtn.addEventListener('click', ()=>{
+  if(cart.length===0){
+    alert('購物車為空');
+    return;
+  }
+  const lines = ['店家,品項,數量,單價,小計,備註'];
+  cart.forEach(c=>{
+    const shop = app.shops.find(s=>s.id===c.shopId);
+    const item = shop.items.find(i=>i.id===c.itemId);
+    lines.push([shop.name, item.name, c.qty, item.price, item.price*c.qty, `"${(c.notes||'').replace(/"/g,'""')}"`].join(','));
+  });
+  const csv = lines.join('\n'); // ✅ 修正這裡
+  csvArea.style.display='block';
+  csvArea.value = csv;
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `order_${Date.now()}.csv`;
+  a.click();
+});
 
-copyOrderBtn.addEventListener('click', ()=>{ if(cart.length===0){alert('購物車為空');return} let txt = '訂單摘要:
-'; let sum=0; cart.forEach(c=>{ const shop = app.shops.find(s=>s.id===c.shopId); const item = shop.items.find(i=>i.id===c.itemId); txt += `${shop.name} - ${item.name} x ${c.qty} (${item.price}元) 備註:${c.notes||'-'}
-`; sum += item.price*c.qty; }); txt += `總價: ${sum}元`; navigator.clipboard.writeText(txt).then(()=>alert('已複製到剪貼簿')); });
+copyOrderBtn.addEventListener('click', ()=>{ if(cart.length===0){alert('購物車為空');return} let txt = `訂單摘要:\n`; let sum=0; cart.forEach(c=>{ const shop = app.shops.find(s=>s.id===c.shopId); const item = shop.items.find(i=>i.id===c.itemId); txt += `${shop.name} - ${item.name} x ${c.qty} (${item.price}元) 備註:${c.notes||'-'}\n`; sum += item.price*c.qty; }); txt += `總價: ${sum}元`; navigator.clipboard.writeText(txt).then(()=>alert('已複製到剪貼簿')); });
 
 clearCartBtn.addEventListener('click', ()=>{ if(confirm('清空購物車？')){cart=[]; renderCart(); refreshQtyDisplays(); csvArea.style.display='none';}});
 
